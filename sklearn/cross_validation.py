@@ -1113,7 +1113,7 @@ def cross_val_score(estimator, X, y=None, scoring=None, cv=None, n_jobs=1,
 
 def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
                    fit_params, return_train_score=False,
-                   return_parameters=False):
+                   return_parameters=False, return_estimator=False):
     """Fit estimator and compute scores for a given dataset split.
 
     Parameters
@@ -1152,6 +1152,9 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
 
     return_parameters : boolean, optional, default: False
         Return parameters that has been used for the estimator.
+
+    return_estimator : boolean, optional, default: False
+        Return estimator that has been fit to data
 
     Returns
     -------
@@ -1212,6 +1215,8 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
     ret.extend([test_score, _num_samples(X_test), scoring_time])
     if return_parameters:
         ret.append(parameters)
+    if return_estimator:
+        ret.append(estimator)
     return ret
 
 

@@ -274,6 +274,12 @@ class _CVScoreTuple (namedtuple('_CVScoreTuple',
             self.parameters)
 
 
+class _GridPointEstimator(namedtuple('_GridPointEstimator', 
+                                    ('parameters', 
+                                    'cv_estimators'))):
+    __slots__ = ()
+
+
 class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
                                       MetaEstimatorMixin)):
     """Base class for hyper parameter search with cross-validation."""
@@ -281,7 +287,7 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
     @abstractmethod
     def __init__(self, estimator, scoring=None, loss_func=None,
                  score_func=None, fit_params=None, n_jobs=1, iid=True,
-                 refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs'):
+                 refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs', keep_cv_estimators=False):
 
         self.scoring = scoring
         self.estimator = estimator
@@ -294,6 +300,7 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
         self.cv = cv
         self.verbose = verbose
         self.pre_dispatch = pre_dispatch
+        self.keep_cv_estimators = keep_cv_estimators
 
     def score(self, X, y=None):
         """Returns the score on the given test data and labels, if the search
@@ -376,13 +383,26 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
         )(
             delayed(_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
                                     train, test, self.verbose, parameters,
-                                    self.fit_params, return_parameters=True)
+                                    self.fit_params, return_parameters=True, return_estimator=True)
             for parameters in parameter_iterable
             for train, test in cv)
 
-        # Out is a list of triplet: score, estimator, n_test_samples
+        # Out is a list of quintuplets: test_score, n_test_samples, scoring_time, parameters, fitted_estimator
         n_fits = len(out)
         n_folds = len(cv)
+
+        if self.keep_cv_estimators:            
+            grid_point_estimators = list()
+            for grid_start in range(0, n_fits, n_folds):
+                cv_estimators = list()
+                for this_score, this_n_test_samples, _, parameters, cv_estimator in \
+                        out[grid_start:grid_start + n_folds]:
+                    cv_estimators.append(cv_estimator)
+                p = _GridPointEstimator(parameters, cv_estimators)
+                grid_point_estimators.append(p)
+
+            self.grid_point_estimators_ = grid_point_estimators
+            self.cv_generator_ = cv.__class__
 
         scores = list()
         grid_scores = list()
@@ -390,7 +410,7 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
             n_test_samples = 0
             score = 0
             all_scores = []
-            for this_score, this_n_test_samples, _, parameters in \
+            for this_score, this_n_test_samples, _, parameters, _ in \
                     out[grid_start:grid_start + n_folds]:
                 all_scores.append(this_score)
                 if self.iid:
@@ -497,6 +517,10 @@ class GridSearchCV(BaseSearchCV):
     verbose : integer
         Controls the verbosity: the higher, the more messages.
 
+    keep_cv_estimators : boolean, optional, default : False
+        If True, store all intermediate fitted estimators (one for each
+        cross validation fold) and the used cross validation class.
+
     Examples
     --------
     >>> from sklearn import svm, grid_search, datasets
@@ -543,6 +567,16 @@ class GridSearchCV(BaseSearchCV):
         Scorer function used on the held out data to choose the best
         parameters for the model.
 
+    `grid_point_estimators` : list 
+        List of named tuples GridPointEstimator(parameters, cv_estimators).
+        For a parameter set on the parameter grid, stores all trained cross 
+        validation classifiers in the list cv_estimators. Only set when
+        flag keep_cv_estimators was set.
+
+    `cv_generator_` : class
+        Class used to generate the cross validation sets for this grid search.
+        Only set when flag keep_cv_estimators was set.
+
     Notes
     ------
     The parameters selected are those that maximize the score of the left out
@@ -573,10 +607,10 @@ class GridSearchCV(BaseSearchCV):
 
     def __init__(self, estimator, param_grid, scoring=None, loss_func=None,
                  score_func=None, fit_params=None, n_jobs=1, iid=True,
-                 refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs'):
+                 refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs', keep_cv_estimators=False):
         super(GridSearchCV, self).__init__(
             estimator, scoring, loss_func, score_func, fit_params, n_jobs, iid,
-            refit, cv, verbose, pre_dispatch)
+            refit, cv, verbose, pre_dispatch, keep_cv_estimators)
         self.param_grid = param_grid
         _check_param_grid(param_grid)
 
